@@ -7,7 +7,9 @@
   "workspaces": ["game", "playground"],
   "scripts": {
     "dev": "npm run dev --workspace=playground",
-    "build": "npm run build --workspace=game && npm run build --workspace=playground",
+    "dev:player": "vite",
+    "build": "npm run build --workspace=game && npm run build:player && npm run build --workspace=playground",
+    "build:player": "vite build",
     "preview": "npm run preview --workspace=playground",
     "typecheck": "tsc --noEmit && npm run typecheck --workspace=game && npm run typecheck --workspace=playground",
     "lint": "eslint . --max-warnings=0",

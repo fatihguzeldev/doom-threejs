@@ -13,7 +13,7 @@
       "default": "./dist/game.js"
     }
   },
-  "files": ["dist", "src", "assets", "vendor", "LICENSE", "tsconfig.json", "tsconfig.build.json", "vite.config.ts"],
+  "files": ["dist", "src", "assets", "vendor", "LICENSE", "index.html", "tsconfig.json", "tsconfig.build.json", "vite.config.ts"],
   "scripts": {
     "build": "vite build && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",

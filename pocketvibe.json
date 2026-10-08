@@ -1,0 +1,19 @@
+{
+  "id": "doom-threejs",
+  "title": "doom",
+  "version": "0.1.0",
+  "author": "fatih guzel",
+  "description": "a browser port of doom, written in typescript with three.js.",
+  "genre": "Shooter",
+  "responsive": true,
+  "controls": {
+    "D-pad": "move / turn",
+    "A": "use / confirm",
+    "B": "fire / back",
+    "X": "next weapon",
+    "Y": "run",
+    "L/R": "strafe",
+    "START": "menu",
+    "SELECT": "automap"
+  }
+}

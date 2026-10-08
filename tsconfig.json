@@ -1,5 +1,5 @@
 {
   "extends": "./game/tsconfig.json",
-  "compilerOptions": {"types": ["node", "vite/client"], "customConditions": ["development"]},
+  "compilerOptions": {"types": ["node", "vite/client"], "customConditions": ["development"], "allowImportingTsExtensions": true},
   "include": ["*.ts", "game/*.ts", "game/src/**/*.ts", "game/tests/**/*.ts", "tools/**/*.ts", "playground/**/*.ts"]
 }
