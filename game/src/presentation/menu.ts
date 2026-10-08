@@ -16,7 +16,13 @@ export interface GameMenu {
   draw(context: CanvasRenderingContext2D, tick: number): void;
 }
 
-export function createGameMenu(painter: PatchPainter, mode: () => GameMode, savedSlots: () => readonly string[]): GameMenu {
+export interface GameMenuOptions {
+  readonly allowQuit?: boolean;
+  readonly helpText?: string;
+}
+
+export function createGameMenu(painter: PatchPainter, mode: () => GameMode, savedSlots: () => readonly string[], options: GameMenuOptions = {}): GameMenu {
+  const mainNames = ['M_NGAME', 'M_OPTION', 'M_LOADG', 'M_SAVEG', 'M_RDTHIS', ...(options.allowQuit === false ? [] : ['M_QUITG'])];
   let opened = true, page: 'main' | 'episode' | 'skill' | 'options' | 'save' | 'load' | 'help' = 'main';
   let selection = 0, episode = 1, sfx = 0.8, music = 0.55;
   const layout = (): { x: number; y: number; rowHeight: number } => {
@@ -25,7 +31,7 @@ export function createGameMenu(painter: PatchPainter, mode: () => GameMode, save
     if (page === 'save' || page === 'load') return { x: 80, y: 54, rowHeight: 16 };
     return { x: 60, y: 60, rowHeight: 32 };
   };
-  const rows = (): number => page === 'main' ? 6 : page === 'episode' ? mode() === 'retail' ? 4 : 3 : page === 'skill' ? 5 : page === 'options' ? 2 : page === 'help' ? 1 : 6;
+  const rows = (): number => page === 'main' ? mainNames.length : page === 'episode' ? mode() === 'retail' ? 4 : 3 : page === 'skill' ? 5 : page === 'options' ? 2 : page === 'help' ? 1 : 6;
   const choose = (): MenuAction | null => {
     if (page === 'main') {
       if (selection === 0) page = 'episode';
@@ -47,7 +53,7 @@ export function createGameMenu(painter: PatchPainter, mode: () => GameMode, save
   };
   const input = (action: InputAction): MenuAction | null => {
     if (!opened) return null;
-    if (action === 'menu') {
+    if (action === 'menu' || action === 'back') {
       if (page !== 'main') { page = 'main'; selection = 0; return null; }
       opened = false; return { type: 'close' };
     }
@@ -76,14 +82,14 @@ export function createGameMenu(painter: PatchPainter, mode: () => GameMode, save
       if (!opened) return;
       context.fillStyle = 'rgb(0 0 0 / 35%)'; context.fillRect(0, 0, 320, 200);
       if (page === 'help') {
-        painter.text(context, 'W A S D  MOVE\nMOUSE / ARROWS  TURN\nCTRL / LEFT CLICK  FIRE\nSPACE / E  USE\nSHIFT  RUN\n1-7  WEAPONS\nTAB  AUTOMAP\nF5 / F9  QUICK SAVE / LOAD\nESC  MENU\n\nENTER TO RETURN', 30, 25);
+        painter.text(context, options.helpText ?? 'W A S D  MOVE\nMOUSE / ARROWS  TURN\nCTRL / LEFT CLICK  FIRE\nSPACE / E  USE\nSHIFT  RUN\n1-7  WEAPONS\nTAB  AUTOMAP\nF5 / F9  QUICK SAVE / LOAD\nESC  MENU\n\nENTER TO RETURN', 30, 25);
         return;
       }
       let names: readonly string[] = [];
       const { x, y, rowHeight } = layout();
       if (page === 'main') {
         painter.patch(context, 'M_DOOM', 94, 2);
-        names = ['M_NGAME', 'M_OPTION', 'M_LOADG', 'M_SAVEG', 'M_RDTHIS', 'M_QUITG'];
+        names = mainNames;
       } else if (page === 'episode') {
         painter.patch(context, 'M_EPISOD', 54, 38);
         names = mode() === 'retail' ? ['M_EPI1', 'M_EPI2', 'M_EPI3', 'M_EPI4'] : ['M_EPI1', 'M_EPI2', 'M_EPI3'];

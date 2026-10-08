@@ -6,15 +6,20 @@ export const gameStyles = `
 .doom-screen .doom-world{height:84%}
 .doom-overlay{pointer-events:none}
 .doom-stage:focus-visible{outline:2px solid #dbdd45;outline-offset:3px}
-.doom-threejs:fullscreen{--doom-controls-height:0px;width:100vw;height:100dvh;display:flex;flex-direction:column;justify-content:center;background:#000}
-.doom-threejs:fullscreen .doom-stage{height:calc(100dvh - var(--doom-controls-height))}
-.doom-threejs:fullscreen .doom-screen{width:min(100vw,calc((100dvh - var(--doom-controls-height)) * 4 / 3))}
+.doom-threejs:fullscreen,.doom-fullscreen{--doom-controls-height:0px;width:100%;height:100vh;height:100dvh;display:flex;flex-direction:column;justify-content:center;background:#000}
+.doom-threejs:fullscreen .doom-stage,.doom-fullscreen .doom-stage{height:calc(100dvh - var(--doom-controls-height));min-height:0}
+.doom-threejs:fullscreen .doom-screen,.doom-fullscreen .doom-screen{width:min(100%,calc((100dvh - var(--doom-controls-height)) * 4 / 3))}
 .doom-error{position:absolute;inset:0;display:grid;place-content:center;gap:1rem;padding:2rem;background:#090b0de8;z-index:5;text-align:center}
 .doom-error[hidden]{display:none}
+.doom-loading{position:absolute;inset:0;display:grid;place-content:center;background:#080909;z-index:4;font-size:1rem}
+.doom-loading[hidden]{display:none}
 .doom-error button,.doom-touch button{font:inherit;color:inherit;background:#252727;border:1px solid #535654;padding:.75rem 1rem;cursor:pointer}
-.doom-touch{display:none;gap:.25rem;grid-template-columns:repeat(7,minmax(0,1fr));padding:.5rem}
+.doom-touch{display:none;gap:.25rem;grid-template-columns:repeat(6,minmax(0,1fr));padding:.5rem;flex-shrink:0}
+.doom-touch button[hidden]{display:none}
 .doom-touch button{box-sizing:border-box;touch-action:none;padding:.75rem .25rem;min-height:44px;font-size:.7rem;user-select:none}
 .doom-touch button:active{background:#55594b}
 .doom-sr{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-@media(pointer:coarse){.doom-touch{display:grid}.doom-threejs:fullscreen{--doom-controls-height:60px}}
+@media(pointer:coarse){.doom-touch{display:grid}.doom-threejs:fullscreen,.doom-fullscreen{--doom-controls-height:108px}}
+.doom-threejs[data-touch=off] .doom-touch{display:none}
+.doom-threejs[data-touch=off]{--doom-controls-height:0px}
 `;

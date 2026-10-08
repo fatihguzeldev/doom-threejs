@@ -1,5 +1,6 @@
 import { createGameAudio, type AudioScene } from '../audio/game-audio';
-import { createBrowserInput, type InputAction } from '../input/browser';
+import { createBrowserInput, type BrowserInputOptions, type InputAction } from '../input/browser';
+import { createTouchInput } from '../input/touch';
 import { drawAutomap } from '../presentation/automap';
 import { createGameMenu, type MenuAction } from '../presentation/menu';
 import { createPatchPainter, paletteForPlayer } from '../presentation/patches';
@@ -33,6 +34,10 @@ export interface MountOptions {
   readonly wadUrl?: string;
   readonly wadBytes?: Uint8Array;
   readonly resolution?: 320 | 640 | 960;
+  readonly input?: BrowserInputOptions;
+  readonly screenMode?: 'embedded' | 'fullscreen';
+  readonly touchControls?: boolean;
+  readonly allowQuit?: boolean;
   readonly onStatus?: (status: GameStatus) => void;
   readonly onError?: (error: Error) => void;
 }
@@ -71,6 +76,9 @@ export async function mountDoom(
     session = createSession(wad, resources);
   const root = owner.createElement('div');
   root.className = 'doom-threejs';
+  if (options.screenMode === 'fullscreen') root.classList.add('doom-fullscreen');
+  if (options.touchControls === false) root.dataset.touch = 'off';
+  const buttonsKeyboard = options.input?.keyboardProfile === 'buttons';
   const style = owner.createElement('style');
   style.textContent = gameStyles;
   root.append(style);
@@ -80,7 +88,9 @@ export async function mountDoom(
   stage.setAttribute('role', 'application');
   stage.setAttribute(
     'aria-label',
-    'Doom. WASD to move, mouse to turn, control to fire, space to use, escape for menu.',
+    buttonsKeyboard
+      ? 'Doom. D-pad to move and turn, right button to use or confirm, bottom button to fire or go back, start for menu.'
+      : 'Doom. WASD to move, mouse or arrows to turn, control to fire, space to use, escape for menu. Gamepad supported.',
   );
   const screen = owner.createElement('div');
   screen.className = 'doom-screen';
@@ -109,19 +119,36 @@ export async function mountDoom(
   errorClose.textContent = 'return to menu';
   errorPanel.append(errorText, errorClose);
   screen.append(errorPanel);
+  const loading = owner.createElement('div');
+  loading.className = 'doom-loading';
+  loading.setAttribute('role', 'status');
+  loading.textContent = 'loading…';
+  loading.hidden = true;
+  screen.append(loading);
   let currentWorld: World | null = null;
-  const audioOptions = {
+  let audioGeneration = 0;
+  const audioOptions = (generation: number) => ({
     random: () => (currentWorld ? menuRandom(currentWorld.random) : 0),
-    onError: (error: Error) => reportError(error),
-  };
+    onError: (error: Error) => { if (generation === audioGeneration) reportError(error); },
+  });
   let renderer = createWorldRenderer(canvas, resources),
-    audio = createGameAudio(wad, audioOptions);
+    audio = createGameAudio(wad, audioOptions(audioGeneration));
+  const unlockAudio = (): void => {
+    const activeAudio = audio;
+    void activeAudio.unlock().catch(error => { if (activeAudio === audio) reportError(error); });
+  };
   let painter = createPatchPainter(resources, owner),
     statusBar = createStatusBar(painter);
   const resolution = options.resolution ?? 640;
   renderer.resize(resolution, Math.round((resolution * 168) / 320));
-  const input = createBrowserInput(stage),
-    touch = new Set<string>();
+  const input = createBrowserInput(stage, {
+      ...options.input,
+      onActivity() {
+        options.input?.onActivity?.();
+        unlockAudio();
+      },
+    }),
+    touch = createTouchInput();
   const touchPanel = owner.createElement('div');
   touchPanel.className = 'doom-touch';
   const touchCaptions = {
@@ -131,8 +158,18 @@ export async function mountDoom(
     right: '→',
     fire: 'fire',
     use: 'use',
+    strafeLeft: '⇤',
+    strafeRight: '⇥',
+    run: 'run',
+    weapon: 'weapon',
+    map: 'map',
     menu: 'menu',
   };
+  const touchActions: Readonly<Partial<Record<keyof typeof touchCaptions, InputAction>>> = {
+    left: 'left', forward: 'up', back: 'down', right: 'right', fire: 'back', use: 'confirm',
+    weapon: 'nextWeapon', map: 'automap', menu: 'menu',
+  };
+  const touchButtons = new Map<keyof typeof touchCaptions, HTMLButtonElement>();
   for (const [key, label] of [
     ['left', 'turn left'],
     ['forward', 'forward'],
@@ -140,25 +177,34 @@ export async function mountDoom(
     ['right', 'turn right'],
     ['fire', 'fire'],
     ['use', 'use'],
+    ['strafeLeft', 'strafe left'],
+    ['strafeRight', 'strafe right'],
+    ['run', 'run'],
+    ['weapon', 'next weapon'],
+    ['map', 'automap'],
     ['menu', 'menu'],
   ] as const) {
     const button = owner.createElement('button');
     button.type = 'button';
     button.textContent = touchCaptions[key];
     button.setAttribute('aria-label', label);
+    touchButtons.set(key, button);
     button.addEventListener('pointerdown', (event) => {
       event.preventDefault();
       button.setPointerCapture(event.pointerId);
       stage.focus();
-      void audio.unlock().catch(reportError);
-      if (key === 'menu') handleAction('menu');
-      else touch.add(key);
+      unlockAudio();
+      const action = touchActions[key];
+      if (menu.open || paused || preparing || !errorPanel.hidden || key === 'menu' || key === 'weapon' || key === 'map') {
+        if (action) handleAction(action);
+      } else touch.press(event.pointerId, key);
     });
-    const release = (): void => {
-      touch.delete(key);
+    const release = (event: PointerEvent): void => {
+      touch.release(event.pointerId);
     };
     button.addEventListener('pointerup', release);
     button.addEventListener('pointercancel', release);
+    button.addEventListener('lostpointercapture', release);
     touchPanel.append(button);
   }
   root.append(touchPanel);
@@ -167,6 +213,7 @@ export async function mountDoom(
     disposed = false,
     failedRender = false,
     pendingWeapon: number | null = null;
+  let preparing = false, prepareGeneration = 0;
   let automapReveal: 0 | 1 | 2 = 0;
   const cheats = createCheats();
   let message = '',
@@ -197,11 +244,26 @@ export async function mountDoom(
       return [];
     }
   };
-  let menu = createGameMenu(
+  const helpText = buttonsKeyboard
+    ? 'DPAD  MOVE / TURN\nL / R  STRAFE\nBOTTOM  FIRE / BACK\nRIGHT  USE / CONFIRM\nLEFT  NEXT WEAPON\nTOP  RUN\nSTART  MENU\nSELECT  AUTOMAP\n\nRIGHT TO RETURN'
+    : 'W A S D / LEFT STICK  MOVE\nMOUSE / RIGHT STICK  TURN\nDPAD  MOVE / TURN\nCTRL / BOTTOM  FIRE\nSPACE / RIGHT  USE\nSHIFT / TOP  RUN\n1-7 / LEFT  WEAPONS\nL / R  STRAFE\nTAB / SELECT  AUTOMAP\nESC / START  MENU\n\nENTER / RIGHT TO RETURN';
+  const makeMenu = () => createGameMenu(
     painter,
     () => (session.state.kind === 'level' ? session.state.world.mode : sessionOptionsMode()),
     savedSlots,
+    { helpText, ...(options.allowQuit === undefined ? {} : { allowQuit: options.allowQuit }) },
   );
+  let menu = makeMenu();
+  const updateTouch = (): void => {
+    const inMenu = menu.open;
+    touchButtons.get('fire')!.textContent = inMenu ? 'back' : 'fire';
+    touchButtons.get('use')!.textContent = inMenu ? 'ok' : 'use';
+    touchButtons.get('fire')!.setAttribute('aria-label', inMenu ? 'go back' : 'fire');
+    touchButtons.get('use')!.setAttribute('aria-label', inMenu ? 'confirm' : 'use');
+    for (const key of ['strafeLeft', 'strafeRight', 'run', 'weapon', 'map'] as const)
+      touchButtons.get(key)!.hidden = inMenu;
+  };
+  updateTouch();
   function sessionOptionsMode() {
     return findLump(wad, 'E4M1')
       ? ('retail' as const)
@@ -210,12 +272,16 @@ export async function mountDoom(
         : ('shareware' as const);
   }
   const reportError = (value: unknown): void => {
+    if (disposed) return;
     const error = value instanceof Error ? value : new Error(String(value));
     paused = true;
     audio.pause(true);
+    input.clear();
+    input.setContext('menu');
+    touch.clear();
     errorText.textContent = error.message;
     errorPanel.hidden = false;
-    owner.exitPointerLock();
+    owner.exitPointerLock?.();
     options.onError?.(error);
   };
   const tell = (text: string): void => {
@@ -246,15 +312,57 @@ export async function mountDoom(
     clock.previousTime = performance.now();
     clock.accumulatedMs = 0;
   };
+  const cancelPreparation = (): void => {
+    prepareGeneration++;
+    preparing = false;
+    loading.hidden = true;
+    resetClock();
+  };
+  const prepareWorld = async (world: World, alreadySet = false): Promise<void> => {
+    const generation = ++prepareGeneration, activeRenderer = renderer;
+    preparing = true;
+    loading.hidden = false;
+    audio.pause(true);
+    input.setContext('menu');
+    touch.clear();
+    resetClock();
+    try {
+      if (!alreadySet) activeRenderer.setWorld(world);
+      currentWorld = world;
+      await activeRenderer.prepare();
+    } catch (error) {
+      if (!disposed && generation === prepareGeneration) throw error;
+    } finally {
+      if (!disposed && generation === prepareGeneration) {
+        preparing = false;
+        loading.hidden = true;
+        resetClock();
+        input.setContext(menu.open || paused ? 'menu' : 'game');
+        audio.pause(menu.open || paused);
+      }
+    }
+  };
+  const prepareCurrentWorld = (): void => {
+    if (session.state.kind !== 'level' || session.state.world === currentWorld || failedRender) return;
+    automapReveal = 0;
+    cheats.reset();
+    audio.stopSounds();
+    void prepareWorld(session.state.world).catch(error => {
+      failedRender = true;
+      reportError(error);
+    });
+  };
   function openMenu(): void {
     ensureActive();
     errorPanel.hidden = true;
     menu.show();
     touch.clear();
     input.clear();
+    input.setContext('menu');
     audio.pause(true);
-    owner.exitPointerLock();
+    owner.exitPointerLock?.();
     stage.focus();
+    updateTouch();
   }
   const resume = (): void => {
     ensureActive();
@@ -262,9 +370,11 @@ export async function mountDoom(
     menu.hide();
     errorPanel.hidden = true;
     resetClock();
-    audio.pause(false);
+    input.setContext(preparing ? 'menu' : 'game');
+    audio.pause(preparing);
     stage.focus();
-    void audio.unlock().catch(reportError);
+    updateTouch();
+    unlockAudio();
   };
   const save = (slot = 0): void => {
     ensureActive();
@@ -290,9 +400,13 @@ export async function mountDoom(
         tell('empty save slot');
         menu.show('load');
         audio.pause(true);
+        input.setContext('menu');
+        touch.clear();
+        updateTouch();
         return;
       }
       session.load(value);
+      cancelPreparation();
       demo = null;
       currentWorld = null;
       automap = false;
@@ -305,6 +419,7 @@ export async function mountDoom(
       audio.stopSounds();
       tell('game loaded');
       resume();
+      prepareCurrentWorld();
     } catch (error) {
       reportError(error);
     }
@@ -324,6 +439,7 @@ export async function mountDoom(
     touch.clear();
     audio.stopSounds();
     resume();
+    prepareCurrentWorld();
   };
   const handleMenu = (action: MenuAction | null): void => {
     if (!action) return;
@@ -349,17 +465,24 @@ export async function mountDoom(
     stage.focus();
   };
   const handleAction = (action: InputAction): void => {
-    if (menu.open) {
-      handleMenu(menu.input(action));
+    if (!errorPanel.hidden) {
+      if (action === 'menu' || action === 'back' || action === 'confirm') openMenu();
       return;
     }
-    if (action === 'menu') {
+    if (menu.open) {
+      handleMenu(menu.input(action));
+      updateTouch();
+      return;
+    }
+    if (action === 'menu' || (paused && (action === 'back' || action === 'confirm'))) {
       openMenu();
       return;
     }
     if (action === 'pause') {
       paused = !paused;
-      audio.pause(paused);
+      audio.pause(paused || preparing);
+      input.setContext(paused || preparing ? 'menu' : 'game');
+      touch.clear();
       resetClock();
     } else if (action === 'save') save();
     else if (action === 'load') load();
@@ -386,7 +509,7 @@ export async function mountDoom(
   };
   const click = (event: MouseEvent): void => {
     stage.focus();
-    void audio.unlock().catch(reportError);
+    unlockAudio();
     if (menu.open) {
       const bounds = screen.getBoundingClientRect();
       handleMenu(
@@ -415,6 +538,7 @@ export async function mountDoom(
       paused = true;
       audio.pause(true);
       input.clear();
+      input.setContext('menu');
       touch.clear();
     }
     resetClock();
@@ -424,16 +548,13 @@ export async function mountDoom(
     paused = true;
     audio.pause(true);
     input.clear();
+    input.setContext('menu');
     touch.clear();
     resetClock();
   };
   window.addEventListener('blur', blur);
   const frame = (now: number): void => {
     if (disposed) return;
-    if (!errorPanel.hidden) {
-      frameId = window.requestAnimationFrame(frame);
-      return;
-    }
     try {
       fps += (1000 / Math.max(1, now - previousFrame) - fps) * 0.05;
       previousFrame = now;
@@ -442,6 +563,7 @@ export async function mountDoom(
       const steps = advanceClock(clock, performance.now()),
         simulationStart = performance.now();
       for (const action of input.actions()) handleAction(action);
+      prepareCurrentWorld();
       const characters = input.characters();
       if (session.state.kind === 'level' && !menu.open && !paused) {
         const world = session.state.world;
@@ -464,16 +586,18 @@ export async function mountDoom(
       }
       for (let tic = 0; tic < steps.ticks; tic++) {
         menuTick++;
+        input.setContext(menu.open || paused || preparing || !errorPanel.hidden ? 'menu' : 'game');
         let command = input.command();
         for (const action of input.actions()) handleAction(action);
-        if (menu.open || paused || !errorPanel.hidden) continue;
-        if (touch.size !== 0)
+        prepareCurrentWorld();
+        if (menu.open || paused || preparing || !errorPanel.hidden) continue;
+        const touchCommand = touch.command();
+        if (touchCommand)
           command = {
-            forwardMove: (Number(touch.has('forward')) - Number(touch.has('back'))) * 25,
-            sideMove: 0,
-            angleTurn: (Number(touch.has('left')) - Number(touch.has('right'))) * 640,
-            buttons:
-              (touch.has('fire') ? TicButton.attack : 0) | (touch.has('use') ? TicButton.use : 0),
+            forwardMove: Math.max(-50, Math.min(50, command.forwardMove + touchCommand.forwardMove)),
+            sideMove: Math.max(-50, Math.min(50, command.sideMove + touchCommand.sideMove)),
+            angleTurn: ((command.angleTurn + touchCommand.angleTurn) << 16) >> 16,
+            buttons: command.buttons | touchCommand.buttons,
           };
         if (demo !== null) {
           const next = demo.tics[demoTic++]?.find((entry) => entry.player === 0)?.command;
@@ -499,13 +623,7 @@ export async function mountDoom(
         }
       }
       const simulationMs = performance.now() - simulationStart;
-      if (session.state.kind === 'level' && currentWorld !== session.state.world && !failedRender) {
-        audio.stopSounds();
-        renderer.setWorld(session.state.world);
-        currentWorld = session.state.world;
-        automapReveal = 0;
-        cheats.reset();
-      }
+      prepareCurrentWorld();
       for (const event of session.events.splice(0)) {
         if (event.type === 'music') audio.setMusic(event.name, event.loop);
         else if (event.type === 'message') tell(event.text);
@@ -518,7 +636,7 @@ export async function mountDoom(
       const renderStart = performance.now();
       context.clearRect(0, 0, 320, 200);
       const state = session.state;
-      if (failedRender && menu.open) {
+      if (failedRender || preparing) {
         context.fillStyle = '#000';
         context.fillRect(0, 0, 320, 200);
       } else if (state.kind === 'level') {
@@ -549,7 +667,7 @@ export async function mountDoom(
         options.onStatus?.({
           state: state.kind,
           level: state.kind === 'level' ? state.world.spatial.map.name : state.kind,
-          paused: paused || menu.open,
+          paused: paused || menu.open || preparing,
           fps: Math.round(fps),
           drawCalls: stats?.drawCalls ?? 0,
           triangles:
@@ -571,6 +689,20 @@ export async function mountDoom(
   };
   container.append(root);
   audio.pause(true);
+  input.setContext('menu');
+  if (session.state.kind === 'level') {
+    try { await prepareWorld(session.state.world); }
+    catch (error) {
+      disposed = true;
+      input.dispose(); audio.dispose(); renderer.dispose(); painter.clear(); root.remove();
+      owner.removeEventListener('visibilitychange', visibility);
+      stage.removeEventListener('click', click);
+      window.removeEventListener('blur', blur);
+      throw error;
+    }
+  }
+  stage.focus({ preventScroll: true });
+  resetClock();
   frameId = window.requestAnimationFrame(frame);
   return {
     newGame,
@@ -596,6 +728,7 @@ export async function mountDoom(
       paused = true;
       audio.pause(true);
       input.clear();
+      input.setContext('menu');
       touch.clear();
     },
     resume,
@@ -618,7 +751,8 @@ export async function mountDoom(
         nextRenderer.dispose();
         throw error;
       }
-      const nextAudio = createGameAudio(nextWad, audioOptions);
+      const nextAudio = createGameAudio(nextWad, audioOptions(audioGeneration + 1));
+      audioGeneration++;
       renderer.dispose();
       audio.dispose();
       painter.clear();
@@ -632,7 +766,7 @@ export async function mountDoom(
       painter = createPatchPainter(resources, owner);
       statusBar = createStatusBar(painter);
       audio.setVolume(sfxVolume, musicVolume);
-      menu = createGameMenu(painter, sessionOptionsMode, savedSlots);
+      menu = makeMenu();
       currentWorld = nextSession.state.kind === 'level' ? nextSession.state.world : null;
       demo = null;
       automap = false;
@@ -641,10 +775,12 @@ export async function mountDoom(
       failedRender = false;
       pendingWeapon = null;
       openMenu();
+      if (nextSession.state.kind === 'level') void prepareWorld(nextSession.state.world, true).catch(reportError);
     },
     dispose(): void {
       if (disposed) return;
       disposed = true;
+      prepareGeneration++;
       window.cancelAnimationFrame(frameId);
       input.dispose();
       audio.dispose();
@@ -653,7 +789,7 @@ export async function mountDoom(
       owner.removeEventListener('visibilitychange', visibility);
       stage.removeEventListener('click', click);
       window.removeEventListener('blur', blur);
-      if (owner.pointerLockElement === stage) owner.exitPointerLock();
+      if (owner.pointerLockElement === stage) owner.exitPointerLock?.();
       root.remove();
     },
   };

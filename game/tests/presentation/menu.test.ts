@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { createGameMenu } from '../../src/presentation/menu';
+import { createGameMenu, type GameMenuOptions } from '../../src/presentation/menu';
 import type { PatchPainter } from '../../src/presentation/patches';
 
-function fixture() {
+function fixture(options: GameMenuOptions = {}) {
   const patches: { name: string; x: number; y: number }[] = [], texts: { text: string; x: number; y: number }[] = [];
   const context = { fillRect() {} } as unknown as CanvasRenderingContext2D;
   const painter: PatchPainter = {
@@ -10,11 +10,29 @@ function fixture() {
     text(_context, text, x, y) { texts.push({ text, x, y }); }, textWidth: text => text.length * 4,
     image: () => ({} as HTMLCanvasElement), indexed: () => ({} as HTMLCanvasElement), clear() {},
   };
-  const menu = createGameMenu(painter, () => 'shareware', () => ['FIRST SAVE']);
+  const menu = createGameMenu(painter, () => 'shareware', () => ['FIRST SAVE'], options);
   return { menu, context, patches, texts };
 }
 
 describe('native menu placement and selection', () => {
+  it('lets a controller back button return from a submenu and resume from the main menu', () => {
+    const f = fixture();
+    f.menu.input('confirm');
+    expect(f.menu.input('back')).toBeNull();
+    f.menu.draw(f.context, 0);
+    expect(f.patches).toContainEqual({ name: 'M_NGAME', x: 97, y: 64 });
+    expect(f.menu.input('back')).toEqual({ type: 'close' });
+    expect(f.menu.open).toBe(false);
+  });
+
+  it('keeps system exit outside a hosted player menu and shows its control help', () => {
+    const f = fixture({ allowQuit: false, helpText: 'DPAD MOVE / TURN' }), { menu } = f;
+    menu.input('up'); menu.draw(f.context, 0);
+    expect(f.patches.some(patch => patch.name === 'M_QUITG')).toBe(false);
+    menu.input('confirm'); menu.draw(f.context, 0);
+    expect(f.texts.some(text => text.text === 'DPAD MOVE / TURN')).toBe(true);
+  });
+
   it('uses the original main, episode and skill origins with a matching skull cursor', () => {
     const f = fixture(); f.menu.draw(f.context, 0);
     expect(f.patches).toContainEqual({ name: 'M_NGAME', x: 97, y: 64 });
