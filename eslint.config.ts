@@ -2,7 +2,7 @@ import { defineConfig } from 'eslint/config';
 import tseslint from 'typescript-eslint';
 
 export default defineConfig(
-  { ignores: ['**/node_modules/**', '**/dist/**', '**/coverage/**'] },
+  { ignores: ['**/node_modules/**', '**/dist/**', '**/coverage/**', 'game/vendor/**'] },
   tseslint.configs.recommended,
   {
     files: ['**/*.ts'],
