@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "license": "GPL-2.0-only",
   "scripts": {"typecheck": "tsc --noEmit", "test": "vitest run"},
   "dependencies": {"three": "0.186.1"},
   "devDependencies": {
