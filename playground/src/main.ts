@@ -11,6 +11,7 @@ const loadingPanel = element('#loading', HTMLDivElement);
 const loadingText = element('#loading-text', HTMLParagraphElement);
 const retry = element('#retry', HTMLButtonElement);
 const play = element('#play', HTMLButtonElement);
+const playLabel = element('#play-label', HTMLSpanElement);
 const demo = element('#demo', HTMLButtonElement);
 const fullscreen = element('#fullscreen', HTMLButtonElement);
 const menu = element('#menu', HTMLButtonElement);
@@ -50,11 +51,7 @@ function run(action: (game: DoomGame) => void | Promise<void>): void {
 }
 
 function setPlayLabel(started: boolean): void {
-  play.replaceChildren(document.createTextNode(started ? 'restart ' : 'play '));
-  const arrow = document.createElement('span');
-  arrow.textContent = '→';
-  arrow.setAttribute('aria-hidden', 'true');
-  play.append(arrow);
+  playLabel.textContent = started ? 'restart' : 'play';
 }
 
 async function start(): Promise<void> {

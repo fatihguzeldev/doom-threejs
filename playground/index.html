@@ -11,22 +11,37 @@
     <link rel="preload" href="./fonts/space-grotesk-latin.woff2" as="font" type="font/woff2" crossorigin />
   </head>
   <body>
-    <header class="site-header">
-      <a class="wordmark" href="https://github.com/fatihguzeldev/doom-threejs">doom-threejs</a>
-      <a class="source-link" href="https://github.com/fatihguzeldev/doom-threejs" target="_blank" rel="noopener noreferrer">source <span aria-hidden="true">↗</span></a>
-    </header>
     <main>
       <div class="intro">
-        <p class="eyebrow">1993, in your browser</p>
+        <div class="intro-top">
+          <p class="eyebrow">1993, in your browser</p>
+          <a class="github-link" href="https://github.com/fatihguzeldev/doom-threejs" target="_blank" rel="noopener noreferrer"><span>github</span><span aria-hidden="true">↗</span></a>
+        </div>
         <h1>doom, rebuilt<span>.</span></h1>
         <p class="subtitle">the original game. a new engine.</p>
       </div>
       <section class="player" aria-label="play doom">
         <div class="toolbar" role="group" aria-label="game controls">
-          <button id="play" class="primary" type="button" data-game-control disabled>play <span aria-hidden="true">→</span></button>
-          <button id="demo" type="button" data-game-control disabled>watch demo</button>
-          <button id="fullscreen" type="button" data-game-control disabled>fullscreen</button>
-          <button id="menu" type="button" data-game-control disabled>menu</button>
+          <div class="toolbar-start">
+            <button id="play" class="button primary" type="button" data-game-control disabled>
+              <span id="play-label">play</span>
+              <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M4 10h12m-5-5 5 5-5 5" /></svg>
+            </button>
+            <button id="demo" class="button secondary" type="button" data-game-control disabled>
+              <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="m7 4 9 6-9 6Z" /></svg>
+              <span>watch demo</span>
+            </button>
+          </div>
+          <div class="toolbar-end">
+            <button id="fullscreen" class="button utility" type="button" data-game-control disabled>
+              <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4" /></svg>
+              <span>fullscreen</span>
+            </button>
+            <button id="menu" class="button utility" type="button" data-game-control disabled>
+              <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M4 6h12M4 10h12M4 14h12" /></svg>
+              <span>menu</span>
+            </button>
+          </div>
         </div>
         <div class="player-meta">
           <span id="level" aria-live="polite">shareware / episode 01</span>
@@ -36,7 +51,7 @@
           <div id="game" aria-busy="true"></div>
           <div id="loading" class="loading" role="status">
             <p id="loading-text">loading doom<span class="loading-dot">.</span></p>
-            <button id="retry" type="button" hidden>try again</button>
+            <button id="retry" class="button secondary" type="button" hidden>try again</button>
           </div>
         </div>
         <div class="keyboard-controls" aria-label="keyboard controls">
@@ -53,14 +68,21 @@
           <summary>have your own doom.wad? <span aria-hidden="true">+</span></summary>
           <div class="wad-content">
             <p>episodes 2 and 3 require your own doom.wad.<br />your file stays in this browser. nothing is uploaded.</p>
-            <button id="choose-wad" type="button" data-game-control disabled>choose .wad</button>
+            <button id="choose-wad" class="button secondary" type="button" data-game-control disabled>choose .wad</button>
             <input id="wad-file" type="file" accept=".wad" aria-label="choose a local doom wad" hidden />
             <p id="wad-name" class="wad-name" aria-live="polite">shareware episode included.</p>
           </div>
         </details>
       </section>
     </main>
-    <footer class="site-footer"><span>typescript + three.js</span><span>by fatihguzeldev</span></footer>
+    <footer class="site-footer">
+      <p class="credit">
+        <span>by <a href="https://fatihguzel.dev" target="_blank" rel="noopener noreferrer">fatih guzel</a></span>
+        <span class="separator" aria-hidden="true">/</span>
+        <a href="https://github.com/fatihguzeldev" target="_blank" rel="noopener noreferrer">github</a>
+      </p>
+      <p class="about">a browser port of doom, built with typescript and three.js.</p>
+    </footer>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
