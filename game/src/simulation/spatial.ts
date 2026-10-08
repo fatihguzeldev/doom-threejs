@@ -42,7 +42,7 @@ export interface LineIntercept {
   readonly fraction: number;
 }
 
-type Divline = Pick<FixedLine, 'x' | 'y' | 'dx' | 'dy'>;
+export type Divline = Pick<FixedLine, 'x' | 'y' | 'dx' | 'dy'>;
 const BLOCK_SHIFT = FRAC_BITS + 7;
 const BLOCK_MASK = (128 * FRAC_UNIT) - 1;
 const BLOCK_TO_FRAC = 7;
@@ -138,7 +138,7 @@ export function findSubsector(spatial: SpatialMap, x: number, y: number): number
   return index & ~SUBSECTOR_FLAG;
 }
 
-function pointOnDivlineSide(x: number, y: number, line: Divline): 0 | 1 {
+export function pointOnDivlineSide(x: number, y: number, line: Divline): 0 | 1 {
   if (line.dx === 0) return (x <= line.x ? line.dy > 0 : line.dy < 0) ? 1 : 0;
   if (line.dy === 0) return (y <= line.y ? line.dx < 0 : line.dx > 0) ? 1 : 0;
   const dx = (x - line.x) | 0, dy = (y - line.y) | 0;
@@ -150,7 +150,7 @@ function pointOnDivlineSide(x: number, y: number, line: Divline): 0 | 1 {
   return right < left ? 0 : 1;
 }
 
-function interceptFraction(trace: Divline, line: Divline): number {
+export function interceptFraction(trace: Divline, line: Divline): number {
   const denominator = (fixedMul(line.dy >> 8, trace.dx) - fixedMul(line.dx >> 8, trace.dy)) | 0;
   if (denominator === 0) return 0;
   const numerator = (fixedMul(((line.x - trace.x) | 0) >> 8, line.dy) +
@@ -158,35 +158,35 @@ function interceptFraction(trace: Divline, line: Divline): number {
   return fixedDiv(numerator, denominator);
 }
 
-export function traceLines(spatial: SpatialMap, x1: number, y1: number, x2: number, y2: number): readonly LineIntercept[] {
-  const intercepts: LineIntercept[] = [];
-  const visited = new Set<number>();
+export function makeTrace(spatial: SpatialMap, x1: number, y1: number, x2: number, y2: number): Divline {
   if (((x1 - spatial.blockOriginX) & BLOCK_MASK) === 0) x1 = (x1 + FRAC_UNIT) | 0;
   if (((y1 - spatial.blockOriginY) & BLOCK_MASK) === 0) y1 = (y1 + FRAC_UNIT) | 0;
-  const trace: Divline = { x: x1, y: y1, dx: (x2 - x1) | 0, dy: (y2 - y1) | 0 };
+  return { x: x1, y: y1, dx: (x2 - x1) | 0, dy: (y2 - y1) | 0 };
+}
+
+export function lineIntercept(spatial: SpatialMap, trace: Divline, index: number): number | null {
   const longTrace = trace.dx > 16 * FRAC_UNIT || trace.dx < -16 * FRAC_UNIT ||
     trace.dy > 16 * FRAC_UNIT || trace.dy < -16 * FRAC_UNIT;
-  const addLine = (index: number): void => {
-    if (visited.has(index)) return;
-    visited.add(index);
-    const line = element(spatial.lines, index);
-    let first: 0 | 1, second: 0 | 1;
-    if (longTrace) {
-      const v1 = element(spatial.vertices, line.v1), v2 = element(spatial.vertices, line.v2);
-      first = pointOnDivlineSide(v1.x, v1.y, trace);
-      second = pointOnDivlineSide(v2.x, v2.y, trace);
-    } else {
-      first = pointOnLineSide(trace.x, trace.y, line);
-      second = pointOnLineSide((trace.x + trace.dx) | 0, (trace.y + trace.dy) | 0, line);
-    }
-    if (first === second) return;
-    const fraction = interceptFraction(trace, line);
-    if (fraction >= 0 && fraction <= FRAC_UNIT) intercepts.push({ line: index, fraction });
-  };
-  x1 = (x1 - spatial.blockOriginX) | 0;
-  y1 = (y1 - spatial.blockOriginY) | 0;
-  x2 = (x2 - spatial.blockOriginX) | 0;
-  y2 = (y2 - spatial.blockOriginY) | 0;
+  const line = element(spatial.lines, index);
+  let first: 0 | 1, second: 0 | 1;
+  if (longTrace) {
+    const v1 = element(spatial.vertices, line.v1), v2 = element(spatial.vertices, line.v2);
+    first = pointOnDivlineSide(v1.x, v1.y, trace);
+    second = pointOnDivlineSide(v2.x, v2.y, trace);
+  } else {
+    first = pointOnLineSide(trace.x, trace.y, line);
+    second = pointOnLineSide((trace.x + trace.dx) | 0, (trace.y + trace.dy) | 0, line);
+  }
+  if (first === second) return null;
+  const fraction = interceptFraction(trace, line);
+  return fraction >= 0 && fraction <= FRAC_UNIT ? fraction : null;
+}
+
+export function traverseBlocks(spatial: SpatialMap, trace: Divline, visit: (block: number) => void): void {
+  const x1 = (trace.x - spatial.blockOriginX) | 0;
+  const y1 = (trace.y - spatial.blockOriginY) | 0;
+  const x2 = (trace.x + trace.dx - spatial.blockOriginX) | 0;
+  const y2 = (trace.y + trace.dy - spatial.blockOriginY) | 0;
   const startX = x1 >> BLOCK_SHIFT, startY = y1 >> BLOCK_SHIFT;
   const endX = x2 >> BLOCK_SHIFT, endY = y2 >> BLOCK_SHIFT;
   let stepX: number, stepY: number, partial: number, xStep: number, yStep: number;
@@ -219,13 +219,10 @@ export function traceLines(spatial: SpatialMap, x1: number, y1: number, x2: numb
   }
   let xIntercept = ((x1 >> BLOCK_TO_FRAC) + fixedMul(partial, xStep)) | 0;
   let blockX = startX, blockY = startY;
-  const { width, height, cells } = spatial.map.blockmap;
+  const { width, height } = spatial.map.blockmap;
   for (let count = 0; count < 64; count++) {
     if (blockX >= 0 && blockY >= 0 && blockX < width && blockY < height) {
-      // Vanilla P_BlockLinesIterator also reads the list's dummy zero as line 0.
-      // The map decoder strips that header; restore its traversal order here.
-      if (spatial.lines.length !== 0) addLine(0);
-      for (const index of element(cells, blockY * width + blockX)) addLine(index);
+      visit(blockY * width + blockX);
     }
     if (blockX === endX && blockY === endY) break;
     if ((yIntercept >> FRAC_BITS) === blockY) {
@@ -236,5 +233,21 @@ export function traceLines(spatial: SpatialMap, x1: number, y1: number, x2: numb
       blockY += stepY;
     }
   }
+}
+
+export function traceLines(spatial: SpatialMap, x1: number, y1: number, x2: number, y2: number): readonly LineIntercept[] {
+  const intercepts: LineIntercept[] = [], visited = new Set<number>();
+  const trace = makeTrace(spatial, x1, y1, x2, y2);
+  const addLine = (index: number): void => {
+    if (visited.has(index)) return;
+    visited.add(index);
+    const fraction = lineIntercept(spatial, trace, index);
+    if (fraction !== null) intercepts.push({ line: index, fraction });
+  };
+  traverseBlocks(spatial, trace, block => {
+    // Vanilla P_BlockLinesIterator reads the list's dummy zero as line 0.
+    if (spatial.lines.length !== 0) addLine(0);
+    for (const index of element(spatial.map.blockmap.cells, block)) addLine(index);
+  });
   return intercepts.sort((first, second) => first.fraction - second.fraction);
 }
