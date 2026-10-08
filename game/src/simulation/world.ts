@@ -39,6 +39,14 @@ export interface SideState {
   middleTexture: string;
 }
 
+export interface ButtonState {
+  readonly line: number;
+  readonly where: 'upperTexture' | 'middleTexture' | 'lowerTexture';
+  readonly texture: string;
+  timer: number;
+  readonly soundSector: number;
+}
+
 export type GameEvent =
   | { readonly type: 'sound'; readonly sound: SfxId; readonly actor: number | null }
   | { readonly type: 'sectorSound'; readonly sound: SfxId; readonly sector: number }
@@ -55,12 +63,15 @@ export interface World {
   readonly spatial: SpatialMap;
   readonly skill: Skill;
   readonly mode: GameMode;
+  readonly fastMonsters: boolean;
+  readonly respawnMonsters: boolean;
   readonly episode: number;
   readonly mapNumber: number;
   readonly random: RandomState;
   readonly player: Player;
   readonly sectors: SectorState[];
   readonly sides: SideState[];
+  readonly buttons: (ButtonState | null)[];
   readonly lineSpecials: Uint16Array;
   readonly lineFlags: Uint16Array;
   readonly actors: Actor[];
@@ -83,6 +94,8 @@ export interface WorldOptions {
   readonly random?: RandomState;
   readonly player?: Player;
   readonly noMonsters?: boolean;
+  readonly fastMonsters?: boolean;
+  readonly respawnMonsters?: boolean;
 }
 
 const mapActorTypes = new Map<number, ActorType>();
@@ -167,7 +180,7 @@ export function spawnActor(
   if (sector === undefined || sectorIndex === undefined) throw new Error('Actor has no valid map sector');
   const actor = createActor(type, world.nextActorId++, x, y,
     sector.floorHeight, sector.ceilingHeight, sectorIndex, subsector,
-    world.skill, world.random, z);
+    world.skill, world.random, z, world.fastMonsters);
   world.actors.push(actor);
   world.actorsById.set(actor.id, actor);
   world.activeActorIds.add(actor.id);
@@ -191,6 +204,7 @@ function spawnPlayer(world: World, x: number, y: number, angle: number): void {
   player.extraLight = 0;
   player.fixedColormap = 0;
   player.viewHeight = 41 * FRAC_UNIT;
+  player.viewZ = 1;
 }
 
 export function createWorld(map: DoomMap, options: WorldOptions): World {
@@ -228,6 +242,8 @@ export function createWorld(map: DoomMap, options: WorldOptions): World {
   const world: World = {
     spatial, skill: options.skill,
     mode: options.mode ?? 'registered', episode: Number(level[1]), mapNumber: Number(level[2]),
+    fastMonsters: options.fastMonsters === true || options.skill === 4,
+    respawnMonsters: options.respawnMonsters === true || options.skill === 4,
     random: options.random ?? createRandom(), player,
     sectors: map.sectors.map((sector, index) => {
       const group = sectorGroups[index];
@@ -245,6 +261,7 @@ export function createWorld(map: DoomMap, options: WorldOptions): World {
       upperTexture: side.upperTexture, lowerTexture: side.lowerTexture,
       middleTexture: side.middleTexture,
     })),
+    buttons: Array.from({ length: 16 }, () => null),
     lineSpecials: Uint16Array.from(map.lines, line => line.special),
     lineFlags: Uint16Array.from(map.lines, line => line.flags),
     actors: [], actorsById: new Map(), activeActorIds: new Set(),

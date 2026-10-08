@@ -170,6 +170,13 @@ function checkMissileSpawn(world: World, actor: Actor, hooks: ShootingHooks): vo
   if (!tryMove(world, actor, actor.x, actor.y, movement).fits) explodeMissile(world, actor, hooks);
 }
 
+function missileSpeed(world: World, type: ActorType): number {
+  if (world.fastMonsters && (type === ActorType.MT_BRUISERSHOT || type === ActorType.MT_HEADSHOT || type === ActorType.MT_TROOPSHOT)) {
+    return 20 * FRAC_UNIT;
+  }
+  return element(actors, type).speed;
+}
+
 export function spawnMissile(world: World, source: Actor, destination: Actor, type: ActorType, hooks: ShootingHooks): Actor {
   const missile = spawnActor(world, type, source.x, source.y, (source.z + 32 * FRAC_UNIT) | 0);
   const info = element(actors, type);
@@ -178,11 +185,12 @@ export function spawnMissile(world: World, source: Actor, destination: Actor, ty
   let angle = pointToAngle(source.x, source.y, destination.x, destination.y);
   if ((destination.flags & MobjFlag.MF_SHADOW) !== 0) angle = (angle + ((gameRandom(world.random) - gameRandom(world.random)) << 20)) >>> 0;
   missile.angle = angle;
-  missile.momx = fixedMul(info.speed, fineCos(angle));
-  missile.momy = fixedMul(info.speed, fineSin(angle));
+  const speed = missileSpeed(world, type);
+  missile.momx = fixedMul(speed, fineCos(angle));
+  missile.momy = fixedMul(speed, fineSin(angle));
   const dx = Math.abs((destination.x - source.x) | 0), dy = Math.abs((destination.y - source.y) | 0);
   const distance = (dx + dy - (Math.min(dx, dy) >> 1)) | 0;
-  const travelTics = Math.max(1, Math.trunc(distance / info.speed));
+  const travelTics = Math.max(1, Math.trunc(distance / speed));
   missile.momz = Math.trunc(((destination.z - source.z) | 0) / travelTics) | 0;
   checkMissileSpawn(world, missile, hooks);
   return missile;
@@ -203,9 +211,10 @@ export function spawnPlayerMissile(world: World, source: Actor, type: ActorType,
   const info = element(actors, type);
   if (info.seesound !== SfxId.sfx_None) world.events.push({ type: 'sound', sound: info.seesound, actor: missile.id });
   missile.target = source.id; missile.angle = angle;
-  missile.momx = fixedMul(info.speed, fineCos(angle));
-  missile.momy = fixedMul(info.speed, fineSin(angle));
-  missile.momz = fixedMul(info.speed, aim.slope);
+  const speed = missileSpeed(world, type);
+  missile.momx = fixedMul(speed, fineCos(angle));
+  missile.momy = fixedMul(speed, fineSin(angle));
+  missile.momz = fixedMul(speed, aim.slope);
   checkMissileSpawn(world, missile, hooks);
   return missile;
 }

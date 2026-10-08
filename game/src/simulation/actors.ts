@@ -37,6 +37,7 @@ export interface Actor {
   spawnpoint: MapThing | null;
   player: number | null;
   removed: boolean;
+  readonly fastStates: boolean;
 }
 
 function stateDefinition(state: StateId): StateDefinition {
@@ -57,13 +58,14 @@ export function createActor(
   skill: number,
   random: RandomState,
   z: 'floor' | 'ceiling' | number = 'floor',
+  fastStates = skill === 4,
 ): Actor {
   const info = actors[type];
   if (info === undefined) throw new RangeError(`Unknown actor type ${type}`);
   // P_SpawnMobj installs the initial state directly: its action must not run yet.
   const initial = stateDefinition(info.spawnstate);
   return {
-    id, type, state: info.spawnstate, tics: initial.tics,
+    id, type, state: info.spawnstate, tics: stateTics(info.spawnstate, fastStates),
     sprite: initial.sprite, frame: initial.frame,
     x, y,
     z: z === 'floor' ? floorZ : z === 'ceiling' ? (ceilingZ - info.height) | 0 : z,
@@ -75,8 +77,13 @@ export function createActor(
     lastLook: gameRandom(random) % 4,
     target: null, tracer: null,
     sector, subsector, floorZ, ceilingZ,
-    spawnpoint: null, player: null, removed: false,
+    spawnpoint: null, player: null, removed: false, fastStates,
   };
+}
+
+function stateTics(state: StateId, fast: boolean): number {
+  const tics = stateDefinition(state).tics;
+  return fast && state >= StateId.S_SARG_RUN1 && state <= StateId.S_SARG_PAIN2 ? tics >> 1 : tics;
 }
 
 export function setActorState(
@@ -92,7 +99,7 @@ export function setActorState(
     }
     const entered = stateDefinition(state);
     actor.state = state;
-    actor.tics = entered.tics;
+    actor.tics = stateTics(state, actor.fastStates);
     actor.sprite = entered.sprite;
     actor.frame = entered.frame;
     if (entered.action !== ActionId.None) runAction(entered.action, actor);

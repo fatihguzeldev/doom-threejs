@@ -54,6 +54,21 @@ function hooks(): ShootingHooks {
 }
 
 describe('hitscan auto-aim', () => {
+  it('uses twenty-unit monster projectiles in fast/nightmare worlds without affecting normal worlds', () => {
+    const normal = fixture();
+    const fast = createWorld(normal.spatial.map, { skill: 2, fastMonsters: true });
+    const nightmare = createWorld(normal.spatial.map, { skill: 4 });
+    for (const world of [normal, fast, nightmare]) {
+      const shooter = source(world);
+      const target = spawnActor(world, ActorType.MT_POSSESSED, fixed(512), shooter.y, fixed(32));
+      for (const type of [ActorType.MT_TROOPSHOT, ActorType.MT_HEADSHOT, ActorType.MT_BRUISERSHOT]) {
+        const shot = spawnMissile(world, shooter, target, type, hooks());
+        const speed = world === normal ? actors[type]?.speed : fixed(20);
+        expect(speed).toBeDefined();
+        expect(shot.momx).toBe(fixedMul(speed ?? 0, 65535));
+      }
+    }
+  });
   it('selects the first shootable target and centers the available vertical slope', () => {
     const world = fixture(), shooter = source(world);
     spawnActor(world, ActorType.MT_CLIP, fixed(96), fixed(64));

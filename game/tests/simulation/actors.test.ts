@@ -27,7 +27,7 @@ describe('actor spawning', () => {
       moveDir: 0, moveCount: 0, lastLook: 0,
       target: null, tracer: null,
       sector: 3, subsector: 4, floorZ: -8 * unit, ceilingZ: 128 * unit,
-      spawnpoint: null, player: null, removed: false,
+      spawnpoint: null, player: null, removed: false, fastStates: false,
     });
     // P_SpawnMobj draws exactly once from the game RNG, even for static objects.
     expect(random).toEqual({ gameIndex: 1, menuIndex: 0 });
@@ -54,6 +54,21 @@ describe('actor spawning', () => {
 });
 
 describe('actor state transitions', () => {
+  it('halves the native demon run-through-pain range in fast mode without changing shared definitions', () => {
+    const actor = createActor(ActorType.MT_SERGEANT, 0, 0, 0, 0, 128 * unit,
+      0, 0, 4, createRandom());
+    setActorState(actor, StateId.S_SARG_RUN1, () => {});
+    expect(actor.tics).toBe(1);
+    setActorState(actor, StateId.S_SARG_PAIN2, () => {});
+    expect(actor.tics).toBe(1);
+    setActorState(actor, StateId.S_SARG_ATK1, () => {});
+    expect(actor.tics).toBe(4); // Attack frames lie inside G_InitNew's contiguous range.
+    setActorState(actor, StateId.S_SARG_DIE1, () => {});
+    expect(actor.tics).toBe(8);
+    const normal = possessed();
+    setActorState(normal, StateId.S_SARG_RUN1, () => {});
+    expect(normal.tics).toBe(2);
+  });
   it('installs sprite, frame and tics before running the entry action', () => {
     const actor = possessed();
     const seen: number[][] = [];
