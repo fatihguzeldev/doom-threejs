@@ -60,6 +60,18 @@ function wall(name: string, patchIndex = 0): Uint8Array {
   return bytes;
 }
 
+function walls(names: readonly string[]): Uint8Array {
+  const bytes = new Uint8Array(4 + names.length * 4 + names.length * 32);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0, names.length, true);
+  names.forEach((name, index) => {
+    const offset = 4 + names.length * 4 + index * 32;
+    view.setUint32(4 + index * 4, offset, true);
+    bytes.set(wall(name).subarray(8), offset);
+  });
+  return bytes;
+}
+
 function fixture(extra: readonly LumpFixture[] = []): WadArchive {
   return archive([
     { name: 'PLAYPAL', data: Uint8Array.from({ length: 14 * 768 }, (_, index) => index % 256) },
@@ -114,13 +126,52 @@ describe('createResources', () => {
     expect(resources.wall('WALL')).toBe(image);
   });
 
-  it('lets TEXTURE2 definitions override matching names from TEXTURE1', () => {
+  it('keeps the native first-name match from TEXTURE1 before TEXTURE2', () => {
     const resources = createResources(fixture([
       { name: 'PNAMES', data: patchNames(['PATCH', 'SECOND']) },
       { name: 'SECOND', data: patch([7, 8]) },
       { name: 'TEXTURE2', data: wall('WALL', 1) },
     ]));
-    expect([...resources.wall('WALL').pixels]).toEqual([7, 8]);
+    expect([...resources.wall('WALL').pixels]).toEqual([10, 255]);
+  });
+
+  it('queries wall heights and texture-zero height without decoding referenced patches', () => {
+    const resources = createResources(fixture([{ name: 'PNAMES', data: patchNames(['ABSENT']) }]));
+    expect(resources.textureHeight('wall')).toBe(1);
+    expect(resources.textureHeight('-')).toBe(1);
+    expect(() => resources.textureHeight('UNKNOWN')).toThrow(/wall.*UNKNOWN/i);
+    expect(() => resources.wall('WALL')).toThrow(/ABSENT/i);
+  });
+
+  it('animates wall ranges with their absolute original indices, including duplicate prefix names', () => {
+    const resources = createResources(fixture([
+      { name: 'TEXTURE1', data: walls(['WALL', 'WALL', 'SLADRIP1', 'SLADRIP2', 'SLADRIP3']) },
+    ]));
+    expect(resources.animatedWall('sladrip1', 0)).toBe('SLADRIP3');
+    expect(resources.animatedWall('SLADRIP1', 7)).toBe('SLADRIP3');
+    expect(resources.animatedWall('SLADRIP1', 8)).toBe('SLADRIP1');
+    expect(resources.animatedWall('SLADRIP2', 8)).toBe('SLADRIP2');
+    expect(resources.animatedWall('SLADRIP1', 24)).toBe('SLADRIP3');
+    expect(resources.animatedWall('WALL', 999)).toBe('WALL');
+  });
+
+  it('retains nested flat marker positions in the native animation phase', () => {
+    const resources = createResources(fixture([
+      { name: 'F_START' }, { name: 'F1_START' },
+      { name: 'NUKAGE1', data: new Uint8Array(4096) },
+      { name: 'NUKAGE2', data: new Uint8Array(4096) },
+      { name: 'NUKAGE3', data: new Uint8Array(4096) },
+      { name: 'F1_END' }, { name: 'F_END' },
+    ]));
+    expect(resources.animatedFlat('nukage1', 0)).toBe('NUKAGE2');
+    expect(resources.animatedFlat('NUKAGE1', 8)).toBe('NUKAGE3');
+    expect(resources.animatedFlat('NUKAGE1', 16)).toBe('NUKAGE1');
+    expect(resources.flat('NUKAGE1')).toBe(resources.flat('NUKAGE1'));
+  });
+
+  it('skips absent animation starts but rejects incomplete native cycles without decoding patches', () => {
+    expect(createResources(fixture()).animatedWall('WALL', 8)).toBe('WALL');
+    expect(() => createResources(fixture([{ name: 'TEXTURE1', data: wall('SLADRIP1') }]))).toThrow(/animation.*SLADRIP1.*SLADRIP3/i);
   });
 
   it('reports referenced missing patches when the wall is requested', () => {
@@ -205,6 +256,20 @@ describe('createResources', () => {
     expect(second.image).toBe(first.image);
   });
 
+  it('enumerates unique raw sprite images across frame and rotation aliases for atlas preload', () => {
+    const resources = createResources(fixture([
+      { name: 'S_START' },
+      { name: 'TROOA0C0', data: patch([1, 2]) },
+      { name: 'TROOB2B8', data: patch([3, 4]) },
+      { name: 'S_END' },
+    ]));
+    const frames = resources.spriteFrames(SpriteId.SPR_TROO);
+    expect(frames.map(frame => frame.name)).toEqual(['TROOA0C0', 'TROOB2B8']);
+    expect(frames.every(frame => frame.flip === false)).toBe(true);
+    expect(frames[0]?.image).toBe(resources.sprite(SpriteId.SPR_TROO, 2, 3).image);
+    expect(resources.spriteFrames(SpriteId.SPR_TROO)).toBe(frames);
+  });
+
   it('reports missing asset names, frames and rotations without decoding unrelated images', () => {
     const resources = createResources(fixture([
       { name: 'S_START' }, { name: 'TROOA1', data: patch([1, 2]) }, { name: 'S_END' },
@@ -262,5 +327,16 @@ describe('original shareware resources', () => {
     expect(weapon.name).toBe('SHTGA0');
     expect(resources.sprite(SpriteId.SPR_SHTG, 0, 8)).toBe(weapon);
     expect(resources.patch('M_DOOM').alpha.some(value => value === 0)).toBe(true);
+  });
+
+  it('translates original SLADRIP and NUKAGE frames at eight-tic intervals', () => {
+    const wad = parseWad(readFileSync(new URL('../../assets/doom1.wad', import.meta.url)));
+    const resources = createResources(wad);
+    expect(resources.animatedWall('SLADRIP1', 0)).toBe('SLADRIP2');
+    expect(resources.animatedWall('SLADRIP1', 8)).toBe('SLADRIP3');
+    expect(resources.animatedWall('SLADRIP1', 16)).toBe('SLADRIP1');
+    expect(resources.animatedFlat('NUKAGE1', 0)).toBe('NUKAGE1');
+    expect(resources.animatedFlat('NUKAGE1', 8)).toBe('NUKAGE2');
+    expect(resources.animatedFlat('NUKAGE1', 16)).toBe('NUKAGE3');
   });
 });
