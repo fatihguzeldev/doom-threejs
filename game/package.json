@@ -4,11 +4,28 @@
   "private": true,
   "type": "module",
   "license": "GPL-2.0-only",
-  "scripts": {"typecheck": "tsc --noEmit", "test": "vitest run"},
+  "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/game.js",
+      "default": "./dist/game.js"
+    }
+  },
+  "files": ["dist", "src", "assets", "vendor", "LICENSE", "tsconfig.json", "tsconfig.build.json", "vite.config.ts"],
+  "scripts": {
+    "build": "vite build && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
   "dependencies": {"three": "0.186.1"},
   "devDependencies": {
+    "@types/node": "^22.19.0",
     "@types/three": "0.186.0",
     "typescript": "~6.0.0",
+    "vite": "8.3.4",
     "vitest": "5.0.3"
-  }
+  },
+  "engines": {"node": ">=22.12.0"}
 }
