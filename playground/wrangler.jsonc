@@ -1,0 +1,14 @@
+{
+  "name": "doom-threejs",
+  "compatibility_date": "2026-10-09",
+  "workers_dev": true,
+  "assets": {
+    "directory": "./dist"
+  },
+  "routes": [
+    {
+      "pattern": "doom.fatihguzel.dev",
+      "custom_domain": true
+    }
+  ]
+}
