@@ -1,5 +1,4 @@
 import { mountDoom, type DoomGame } from '@doom-threejs/game';
-import './style.css';
 
 function element<T extends Element>(selector: string, type: { new (): T }): T {
   const value = document.querySelector(selector);
