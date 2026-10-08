@@ -81,7 +81,7 @@ describe('single-player level setup', () => {
     expect(world.events.filter(event => event.type === 'stopSound' && event.actor === source.id)).toHaveLength(1);
     sweepActors(world);
     expect(world.actors).not.toContain(source);
-    expect(world.thinkers.some(thinker => thinker.id === source.id)).toBe(false);
+    expect(world.thinkers.some(thinker => thinker.kind === 'actor' && thinker.id === source.id)).toBe(false);
     expect(world.actorsById.get(source.id)).toBe(source);
     missile.target = null;
     sweepActors(world);
@@ -94,7 +94,7 @@ describe('single-player level setup', () => {
     const second = spawnActor(world, ActorType.MT_PUFF, 0, 0);
     first.tracer = second.id;
     second.tracer = first.id;
-    const order = world.thinkers.filter(thinker => thinker.id !== first.id && thinker.id !== second.id);
+    const order = world.thinkers.filter(thinker => thinker.kind !== 'actor' || (thinker.id !== first.id && thinker.id !== second.id));
     removeActor(world, first);
     removeActor(world, second);
     sweepActors(world);

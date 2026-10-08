@@ -1,6 +1,6 @@
 // Copyright (C) 1993-1996 id Software, Inc. GPL-2.0-only.
 // Native level setup from p_setup.c and p_mobj.c. See ../../LICENSE.
-import type { DoomMap } from '../wad/map';
+import type { BBox, DoomMap } from '../wad/map';
 import { createActor, type Actor } from './actors';
 import { ANG45 } from './angle';
 import { ActorType, MobjFlag, actors, type SfxId } from './data/actors';
@@ -8,6 +8,7 @@ import { FRAC_BITS, FRAC_UNIT } from './fixed';
 import { createPlayer, type Player } from './player';
 import { createRandom, gameRandom, type RandomState } from './random';
 import { buildSpatialMap, findSubsector, type SpatialMap } from './spatial';
+import type { SectorThinker } from './specials/types';
 
 export type Skill = 0 | 1 | 2 | 3 | 4;
 export type GameMode = 'shareware' | 'registered' | 'retail';
@@ -23,6 +24,11 @@ export interface SectorState {
   soundTarget: number | null;
   soundTraversed: number;
   soundValidCount: number;
+  readonly lines: readonly number[];
+  readonly blockBounds: BBox;
+  readonly soundX: number;
+  readonly soundY: number;
+  specialData: SectorThinker | null;
 }
 
 export interface SideState {
@@ -35,6 +41,7 @@ export interface SideState {
 
 export type GameEvent =
   | { readonly type: 'sound'; readonly sound: SfxId; readonly actor: number | null }
+  | { readonly type: 'sectorSound'; readonly sound: SfxId; readonly sector: number }
   | { readonly type: 'stopSound'; readonly actor: number }
   | { readonly type: 'message'; readonly text: string }
   | { readonly type: 'exit'; readonly secret: boolean };
@@ -60,7 +67,7 @@ export interface World {
   readonly actorsById: Map<number, Actor>;
   readonly activeActorIds: Set<number>;
   readonly actorBlocks: number[][];
-  readonly thinkers: ActorThinker[];
+  readonly thinkers: (ActorThinker | SectorThinker)[];
   readonly events: GameEvent[];
   nextActorId: number;
   levelTime: number;
@@ -123,7 +130,7 @@ export function sweepActors(world: World): void {
   world.actors.length = write;
   write = 0;
   for (const thinker of world.thinkers) {
-    if (world.activeActorIds.has(thinker.id)) world.thinkers[write++] = thinker;
+    if (thinker.kind === 'actor' ? world.activeActorIds.has(thinker.id) : !thinker.removed) world.thinkers[write++] = thinker;
   }
   world.thinkers.length = write;
 
@@ -190,15 +197,49 @@ export function createWorld(map: DoomMap, options: WorldOptions): World {
   const level = /^E([1-4])M([1-9])$/.exec(map.name);
   if (!level) throw new Error(`Invalid Doom 1 level name ${map.name}`);
   const player = options.player ?? createPlayer();
+  const spatial = buildSpatialMap(map);
+  const sectorLines: number[][] = Array.from({ length: map.sectors.length }, () => []);
+  for (const [index, line] of spatial.lines.entries()) {
+    sectorLines[line.frontSector]?.push(index);
+    if (line.backSector !== null && line.backSector !== line.frontSector) sectorLines[line.backSector]?.push(index);
+  }
+  const sectorGroups = sectorLines.map(lines => {
+    const bounds = { left: 0x7fffffff, right: -0x80000000, bottom: 0x7fffffff, top: -0x80000000 };
+    for (const index of lines) {
+      const line = spatial.lines[index];
+      if (!line) throw new Error('Sector references an invalid line');
+      bounds.left = Math.min(bounds.left, line.bbox.left);
+      bounds.right = Math.max(bounds.right, line.bbox.right);
+      bounds.bottom = Math.min(bounds.bottom, line.bbox.bottom);
+      bounds.top = Math.max(bounds.top, line.bbox.top);
+    }
+    return {
+      lines,
+      blockBounds: {
+        left: Math.max(0, ((bounds.left - spatial.blockOriginX - 32 * FRAC_UNIT) | 0) >> 23),
+        right: Math.min(map.blockmap.width - 1, ((bounds.right - spatial.blockOriginX + 32 * FRAC_UNIT) | 0) >> 23),
+        bottom: Math.max(0, ((bounds.bottom - spatial.blockOriginY - 32 * FRAC_UNIT) | 0) >> 23),
+        top: Math.min(map.blockmap.height - 1, ((bounds.top - spatial.blockOriginY + 32 * FRAC_UNIT) | 0) >> 23),
+      },
+      soundX: Math.trunc(((bounds.right + bounds.left) | 0) / 2),
+      soundY: Math.trunc(((bounds.top + bounds.bottom) | 0) / 2),
+    };
+  });
   const world: World = {
-    spatial: buildSpatialMap(map), skill: options.skill,
+    spatial, skill: options.skill,
     mode: options.mode ?? 'registered', episode: Number(level[1]), mapNumber: Number(level[2]),
     random: options.random ?? createRandom(), player,
-    sectors: map.sectors.map(sector => ({
+    sectors: map.sectors.map((sector, index) => {
+      const group = sectorGroups[index];
+      if (!group) throw new Error('Sector line group is missing');
+      return {
       ...sector, floorHeight: sector.floorHeight << FRAC_BITS,
       ceilingHeight: sector.ceilingHeight << FRAC_BITS,
       soundTarget: null, soundTraversed: 0, soundValidCount: 0,
-    })),
+      ...group,
+      specialData: null,
+      };
+    }),
     sides: map.sides.map(side => ({
       textureOffset: side.textureOffset << FRAC_BITS, rowOffset: side.rowOffset << FRAC_BITS,
       upperTexture: side.upperTexture, lowerTexture: side.lowerTexture,
