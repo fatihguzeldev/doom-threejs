@@ -1,0 +1,13 @@
+{
+  "name": "@doom-threejs/game",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {"typecheck": "tsc --noEmit", "test": "vitest run"},
+  "dependencies": {"three": "0.186.1"},
+  "devDependencies": {
+    "@types/three": "0.186.0",
+    "typescript": "~6.0.0",
+    "vitest": "5.0.3"
+  }
+}
