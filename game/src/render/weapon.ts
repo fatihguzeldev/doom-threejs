@@ -14,6 +14,7 @@ export interface WeaponSlot {
 export interface WeaponPass {
   readonly scene: Scene;
   readonly camera: OrthographicCamera;
+  readonly materials: readonly ShaderMaterial[];
   readonly slots: readonly [WeaponSlot, WeaponSlot];
   readonly activeSlots: number;
   readonly invisible: boolean;
@@ -56,7 +57,7 @@ export function createWeaponPass(atlas: IndexedAtlas, materials: NativeMaterials
     }
   };
   return {
-    scene, camera, slots,
+    scene, camera, materials: pages, slots,
     get activeSlots(): number { return activeSlots; },
     get invisible(): boolean { return invisible; },
     setView(width, height): void {

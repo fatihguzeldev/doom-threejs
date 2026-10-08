@@ -3,6 +3,7 @@ import {
   InstancedBufferAttribute, InstancedMesh, Matrix4, Mesh, NearestFilter, NoColorSpace, PerspectiveCamera,
   RedFormat, RGBAFormat, Scene, ShaderMaterial, UnsignedByteType, UnsignedInt248Type, Vector2, WebGLRenderer, WebGLRenderTarget,
 } from 'three';
+import type { Object3D } from 'three';
 import { ANG45, angleToRadians, pointToAngle } from '../simulation/angle';
 import { MobjFlag } from '../simulation/data/actors';
 import { FRAC_UNIT } from '../simulation/fixed';
@@ -49,6 +50,7 @@ export interface WorldRenderer {
   readonly stats: WorldFrameStats | null;
   setWorld(world: World): void;
   resize(width: number, height: number): void;
+  prepare(): Promise<void>;
   render(camera: RenderCamera): void;
   dispose(): void;
 }
@@ -294,6 +296,7 @@ export function createWorldRenderer(canvas: HTMLCanvasElement, resources: DoomRe
   copyGeometry.setAttribute('position', new BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
   const copyUniforms = { uSource: { value: opaque.texture }, uFinal: { value: 0 } };
   const copyMaterial = new ShaderMaterial({
+    name: 'Doom frame copy',
     uniforms: copyUniforms, depthTest: false, depthWrite: false, toneMapped: false,
     vertexShader: 'varying vec2 vUV; void main() { vUV = (position.xy + vec2(1.0)) * 0.5; gl_Position = vec4(position.xy, 0.0, 1.0); }',
     fragmentShader: 'uniform sampler2D uSource; uniform float uFinal; varying vec2 vUV; void main() { vec4 color = texture2D(uSource, vUV); gl_FragColor = vec4(color.rgb, mix(color.a, 1.0, uFinal)); }',
@@ -303,6 +306,7 @@ export function createWorldRenderer(canvas: HTMLCanvasElement, resources: DoomRe
   const clearColor = new Color(), palette = new DataView(resources.palettes.buffer, resources.palettes.byteOffset, resources.palettes.byteLength);
   let current: WorldScene | null = null, currentWorld: World | null = null, weapon: WeaponPass | null = null;
   let fuzzMaterials: ShaderMaterial[] = [], weaponFuzzMaterials: ShaderMaterial[] = [], disposed = false;
+  let generation = 0, preparation: Promise<void> | null = null;
   const createFuzzMaterials = (state: WorldScene, screenspace: boolean): ShaderMaterial[] => state.materials.pages.map((base, page) => {
     const texture = element(state.materials.atlasTextures, page), atlasPage = element(state.atlas.pages, page);
     const material = new ShaderMaterial({
@@ -319,6 +323,7 @@ export function createWorldRenderer(canvas: HTMLCanvasElement, resources: DoomRe
   const resize = (width: number, height: number): void => {
     if (disposed) throw new Error('World renderer is disposed');
     if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) throw new Error('Invalid world renderer resolution');
+    generation++; preparation = null;
     renderer.setSize(width, height, false); opaque.setSize(width, height); composed.setSize(width, height); resolution.set(width, height);
     camera.aspect = width / height;
     // Vanilla projects with half the screen width: a fixed 90-degree horizontal FOV.
@@ -332,6 +337,7 @@ export function createWorldRenderer(canvas: HTMLCanvasElement, resources: DoomRe
     setWorld(world): void {
       if (disposed) throw new Error('World renderer is disposed');
       const next = createWorldScene(world, resources);
+      generation++; preparation = null;
       weapon?.dispose(); current?.dispose(); for (const material of [...fuzzMaterials, ...weaponFuzzMaterials]) material.dispose();
       current = next; currentWorld = world;
       next.materials.setView(resolution.x, resolution.x / 2);
@@ -342,6 +348,54 @@ export function createWorldRenderer(canvas: HTMLCanvasElement, resources: DoomRe
       }
     },
     resize,
+    prepare(): Promise<void> {
+      if (disposed) return Promise.reject(new Error('World renderer is disposed'));
+      if (!current || !weapon) return Promise.reject(new Error('Set a world before preparing its renderer'));
+      if (preparation) return preparation;
+      const state = current, preparedWeapon = weapon, version = generation;
+      const ensureCurrent = (): void => {
+        if (disposed) throw new Error('World renderer is disposed');
+        if (version !== generation) throw new Error('World renderer changed during preparation');
+      };
+      // Borrow existing geometry: shader compilation does not draw or allocate
+      // additional weapon buffers, and includes even pages not visible yet.
+      const weaponScene = new Scene(), weaponFuzzScene = new Scene();
+      weaponScene.add(new Mesh(preparedWeapon.slots[0].mesh.geometry, [...preparedWeapon.materials]));
+      weaponFuzzScene.add(new Mesh(preparedWeapon.slots[0].mesh.geometry, [...weaponFuzzMaterials]));
+      const compile = (scene: Object3D, viewCamera: Camera, target: WebGLRenderTarget | null, targetScene?: Scene) => {
+        ensureCurrent();
+        const previousTarget = renderer.getRenderTarget();
+        try {
+          // Three's shader cache distinguishes render-target and canvas color
+          // spaces, so compile each variant under its actual destination.
+          renderer.setRenderTarget(target);
+          return renderer.compileAsync(scene, viewCamera, targetScene);
+        } finally { renderer.setRenderTarget(previousTarget); }
+      };
+      const prepare = async (): Promise<void> => {
+        try {
+          renderer.initRenderTarget(opaque); renderer.initRenderTarget(composed);
+          for (const texture of [...state.materials.atlasTextures, state.materials.paletteTexture, state.materials.colormapTexture, pattern]) renderer.initTexture(texture);
+          // Batches and instanced sprites share materials. Three waits on each
+          // material's currentProgram, so finish one object variant at a time.
+          for (const object of state.scene.children) { await compile(object, camera, opaque, state.scene); ensureCurrent(); }
+          const passes: readonly (readonly [Scene, Camera, WebGLRenderTarget | null])[] = [
+            [state.fuzzScene, camera, composed],
+            [state.skyMaskScene, camera, opaque], [state.sky.scene, state.sky.camera, opaque],
+            [weaponScene, preparedWeapon.camera, opaque], [weaponFuzzScene, preparedWeapon.camera, composed],
+            [copyScene, copyCamera, composed], [copyScene, copyCamera, null],
+          ];
+          for (const [scene, viewCamera, target] of passes) { await compile(scene, viewCamera, target); ensureCurrent(); }
+        } finally { weaponScene.clear(); weaponFuzzScene.clear(); }
+      };
+      // Three compileAsync also waits for completion when parallel shader
+      // compilation is unavailable; no extension-specific fallback is needed.
+      preparation = prepare().catch((error: unknown) => {
+        if (version === generation) preparation = null;
+        throw error;
+      });
+      return preparation;
+    },
     render(view): void {
       if (disposed) throw new Error('World renderer is disposed');
       if (!current || !currentWorld) return;
@@ -388,6 +442,7 @@ export function createWorldRenderer(canvas: HTMLCanvasElement, resources: DoomRe
     },
     dispose(): void {
       if (disposed) return;
+      generation++; preparation = null;
       disposed = true; weapon?.dispose(); current?.dispose(); for (const material of [...fuzzMaterials, ...weaponFuzzMaterials]) material.dispose();
       // The opaque target owns its depth texture; Three disposes that attachment with it.
       opaque.dispose(); composed.dispose(); pattern.dispose(); copyGeometry.dispose(); copyMaterial.dispose(); renderer.dispose();
