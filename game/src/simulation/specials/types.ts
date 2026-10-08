@@ -36,6 +36,7 @@ export interface FloorThinker extends SectorThinkerBase {
 
 export interface CeilingThinker extends SectorThinkerBase {
   readonly kind: 'ceiling';
+  readonly activeSlot: number | null;
   type: CeilingType;
   speed: number;
   topHeight: number;
@@ -48,6 +49,7 @@ export interface CeilingThinker extends SectorThinkerBase {
 
 export interface PlatformThinker extends SectorThinkerBase {
   readonly kind: 'platform';
+  readonly activeSlot: number | null;
   type: PlatformType;
   speed: number;
   low: number;
