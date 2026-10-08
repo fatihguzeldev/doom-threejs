@@ -4,9 +4,12 @@
   "private": true,
   "type": "module",
   "license": "GPL-2.0-only",
-  "workspaces": ["game"],
+  "workspaces": ["game", "playground"],
   "scripts": {
-    "typecheck": "tsc --noEmit && npm run typecheck --workspace=game",
+    "dev": "npm run dev --workspace=playground",
+    "build": "npm run build --workspace=game && npm run build --workspace=playground",
+    "preview": "npm run preview --workspace=playground",
+    "typecheck": "tsc --noEmit && npm run typecheck --workspace=game && npm run typecheck --workspace=playground",
     "lint": "eslint . --max-warnings=0",
     "test": "vitest run",
     "check": "npm run typecheck && npm run lint && npm test"

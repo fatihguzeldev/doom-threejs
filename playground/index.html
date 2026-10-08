@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#151411" />
+    <meta name="description" content="the original doom, rebuilt in typescript and three.js. play it in your browser." />
+    <title>doom, rebuilt.</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href="./fonts/space-grotesk-latin.woff2" as="font" type="font/woff2" crossorigin />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="wordmark" href="https://github.com/fatihguzeldev/doom-threejs">doom-threejs</a>
+      <a class="source-link" href="https://github.com/fatihguzeldev/doom-threejs" target="_blank" rel="noopener noreferrer">source <span aria-hidden="true">↗</span></a>
+    </header>
+    <main>
+      <div class="intro">
+        <p class="eyebrow">1993, in your browser</p>
+        <h1>doom, rebuilt<span>.</span></h1>
+        <p class="subtitle">the original game. a new engine.</p>
+      </div>
+      <section class="player" aria-label="play doom">
+        <div class="toolbar" role="group" aria-label="game controls">
+          <button id="play" class="primary" type="button" data-game-control disabled>play <span aria-hidden="true">→</span></button>
+          <button id="demo" type="button" data-game-control disabled>watch demo</button>
+          <button id="fullscreen" type="button" data-game-control disabled>fullscreen</button>
+          <button id="menu" type="button" data-game-control disabled>menu</button>
+        </div>
+        <div class="player-meta">
+          <span id="level" aria-live="polite">shareware / episode 01</span>
+          <span id="performance" aria-live="off">loading</span>
+        </div>
+        <div class="viewport">
+          <div id="game" aria-busy="true"></div>
+          <div id="loading" class="loading" role="status">
+            <p id="loading-text">loading doom<span class="loading-dot">.</span></p>
+            <button id="retry" type="button" hidden>try again</button>
+          </div>
+        </div>
+        <div class="keyboard-controls" aria-label="keyboard controls">
+          <span><kbd>wasd</kbd> move</span>
+          <span><kbd>mouse</kbd> look</span>
+          <span><kbd>ctrl</kbd> fire</span>
+          <span><kbd>space</kbd> use</span>
+          <span><kbd>esc</kbd> menu</span>
+        </div>
+        <p class="mouse-note">click the game to capture your mouse. esc releases it.</p>
+        <p class="touch-note">touch controls are below the game.</p>
+        <p id="notice" class="notice" role="alert" hidden></p>
+        <details class="wad-picker">
+          <summary>have your own doom.wad? <span aria-hidden="true">+</span></summary>
+          <div class="wad-content">
+            <p>episodes 2 and 3 require your own doom.wad.<br />your file stays in this browser. nothing is uploaded.</p>
+            <button id="choose-wad" type="button" data-game-control disabled>choose .wad</button>
+            <input id="wad-file" type="file" accept=".wad" aria-label="choose a local doom wad" hidden />
+            <p id="wad-name" class="wad-name" aria-live="polite">shareware episode included.</p>
+          </div>
+        </details>
+      </section>
+    </main>
+    <footer class="site-footer"><span>typescript + three.js</span><span>by fatihguzeldev</span></footer>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
